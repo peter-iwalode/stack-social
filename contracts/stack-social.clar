@@ -258,3 +258,100 @@
     )
   )
 )
+
+;; Public functions
+
+(define-public (initialize-user-profile)
+  (let (
+    (user tx-sender)
+  )
+    (asserts! (is-none (map-get? user-profiles user)) ERR-ALREADY-EXISTS)
+    (map-set user-profiles user {
+      reputation-score: u100, ;; Starting reputation
+      last-activity-block: stacks-block-height,
+      total-earnings: u0,
+      engagement-count: u0,
+      reputation-nft-id: none,
+      membership-nft-id: none
+    })
+    (ok true)
+  )
+)
+
+(define-public (setup-creator-profile (threshold uint) (reward-per-engagement uint))
+  (let (
+    (creator tx-sender)
+  )
+    (asserts! (not (is-contract-paused)) ERR-UNAUTHORIZED)
+    (asserts! (> threshold u0) ERR-INVALID-THRESHOLD)
+    (asserts! (> reward-per-engagement u0) ERR-INVALID-AMOUNT)
+    
+    (map-set creator-settings creator {
+      earnings-threshold: threshold,
+      reward-per-engagement: reward-per-engagement,
+      is-active: true,
+      total-distributed: u0
+    })
+    (ok true)
+  )
+)
+
+(define-public (tip-creator (creator principal) (amount uint))
+  (let (
+    (tipper tx-sender)
+  )
+    (asserts! (not (is-contract-paused)) ERR-UNAUTHORIZED)
+    (asserts! (>= amount MIN-TIP-AMOUNT) ERR-INVALID-AMOUNT)
+    (asserts! (not (is-eq tipper creator)) ERR-UNAUTHORIZED)
+    
+    ;; Transfer STX to creator
+    (try! (stx-transfer? amount tipper creator))
+    
+    ;; Update reputation for both parties
+    (try! (update-reputation-score tipper u50)) ;; Reputation for tipping
+    (try! (update-reputation-score creator u100)) ;; Reputation for receiving tip
+    
+    ;; Record engagement
+    (map-set engagement-history 
+      {user: tipper, target: creator, stacks-block-height: stacks-block-height}
+      {
+        engagement-type: "tip",
+        amount: amount,
+        processed: true
+      }
+    )
+    
+    ;; Process any engagement rewards
+    (try! (process-engagement-reward creator amount))
+    
+    (ok true)
+  )
+)
+
+(define-public (engage-with-creator (creator principal) (engagement-type (string-ascii 20)))
+  (let (
+    (user tx-sender)
+    (engagement-key {user: user, target: creator, stacks-block-height: stacks-block-height})
+  )
+    (asserts! (not (is-contract-paused)) ERR-UNAUTHORIZED)
+    (asserts! (not (is-eq user creator)) ERR-UNAUTHORIZED)
+    
+    ;; Check for cooldown (prevent spam)
+    (asserts! (is-none (map-get? engagement-history 
+      {user: user, target: creator, stacks-block-height: (- stacks-block-height u1)})) 
+      ERR-COOLDOWN-ACTIVE)
+    
+    ;; Record engagement
+    (map-set engagement-history engagement-key {
+      engagement-type: engagement-type,
+      amount: u0,
+      processed: false
+    })
+    
+    ;; Update reputation
+    (try! (update-reputation-score user u25))
+    (try! (update-reputation-score creator u50))
+    
+    (ok true)
+  )
+)
