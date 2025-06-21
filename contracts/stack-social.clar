@@ -332,9 +332,15 @@
   (let (
     (user tx-sender)
     (engagement-key {user: user, target: creator, stacks-block-height: stacks-block-height})
+    ;; Validate engagement type
+    (valid-engagement (or (is-eq engagement-type "like") 
+                         (or (is-eq engagement-type "share") 
+                            (or (is-eq engagement-type "comment")
+                               (is-eq engagement-type "follow")))))
   )
     (asserts! (not (is-contract-paused)) ERR-UNAUTHORIZED)
     (asserts! (not (is-eq user creator)) ERR-UNAUTHORIZED)
+    (asserts! valid-engagement ERR-INVALID-AMOUNT)
     
     ;; Check for cooldown (prevent spam)
     (asserts! (is-none (map-get? engagement-history 
@@ -437,6 +443,12 @@
   (begin
     (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-UNAUTHORIZED)
     (asserts! (> tier-id u0) ERR-INVALID-TIER)
+    (asserts! (and (> tier-id u0) (<= tier-id u10)) ERR-INVALID-TIER) ;; Limit tier range
+    (asserts! (> min-rep u0) ERR-INVALID-THRESHOLD)
+    (asserts! (<= min-rep u50000) ERR-INVALID-THRESHOLD) ;; Max reputation limit
+    (asserts! (and (>= access u1) (<= access u5)) ERR-INVALID-AMOUNT) ;; Valid access levels
+    (asserts! (> (len name) u0) ERR-INVALID-AMOUNT) ;; Non-empty name
+    (asserts! (> (len benefits) u0) ERR-INVALID-AMOUNT) ;; Non-empty benefits
     
     (map-set membership-tiers tier-id {
       tier-name: name,
@@ -467,6 +479,8 @@
 (define-public (emergency-withdraw (amount uint))
   (begin
     (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-UNAUTHORIZED)
+    (asserts! (> amount u0) ERR-INVALID-AMOUNT)
+    (asserts! (<= amount (stx-get-balance (as-contract tx-sender))) ERR-INSUFFICIENT-BALANCE)
     (try! (as-contract (stx-transfer? amount tx-sender CONTRACT-OWNER)))
     (ok true)
   )
